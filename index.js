@@ -14,6 +14,14 @@ const { spawn, execSync } = require('child_process');
 const TOKEN = process.env.DISCORD_TOKEN;
 const STREAM_URL = process.env.STREAM_URL || 'https://cast.sw.arm.fm/stream';
 
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('OK');
+}).listen(PORT, () => console.log(`Heartbeat server on port ${PORT}`));
+
 if (!TOKEN) {
   console.error('❌ Missing DISCORD_TOKEN in .env');
   process.exit(1);
@@ -199,3 +207,4 @@ process.on('SIGINT', () => {
 });
 
 client.login(TOKEN);
+
