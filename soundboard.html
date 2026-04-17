@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎵 Discord Soundboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.6rem;
+      margin-bottom: 6px;
+      color: #a78bfa;
+    }
+
+    /* ── Config bar ── */
+    .config {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .config label { font-size: 0.85rem; color: #aaa; }
+
+    .config input {
+      background: #2d2d44;
+      border: 1px solid #444;
+      border-radius: 8px;
+      color: #e0e0e0;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      width: 240px;
+    }
+
+    .config button, .refresh-btn {
+      background: #6d28d9;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      padding: 7px 16px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.15s;
+    }
+    .config button:hover, .refresh-btn:hover { background: #7c3aed; }
+
+    /* ── Status bar ── */
+    #status-bar {
+      text-align: center;
+      font-size: 0.82rem;
+      margin-bottom: 18px;
+      color: #888;
+      min-height: 18px;
+    }
+    #status-bar.ok   { color: #34d399; }
+    #status-bar.err  { color: #f87171; }
+    #status-bar.info { color: #60a5fa; }
+
+    /* ── Sound grid ── */
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 14px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .sound-btn {
+      background: #16213e;
+      border: 2px solid #2a2a5a;
+      border-radius: 14px;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      padding: 18px 10px;
+      text-align: center;
+      transition: background 0.12s, border-color 0.12s, transform 0.08s;
+      word-break: break-word;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .sound-btn:hover {
+      background: #1e2a5a;
+      border-color: #6d28d9;
+    }
+
+    .sound-btn:active { transform: scale(0.95); }
+
+    .sound-btn.playing {
+      background: #2d1b6e;
+      border-color: #a78bfa;
+      animation: pulse 0.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { box-shadow: 0 0 0px #7c3aed44; }
+      to   { box-shadow: 0 0 14px #7c3aedaa; }
+    }
+
+    .sound-btn .icon { display: block; font-size: 1.6rem; margin-bottom: 6px; }
+
+    /* ── Empty state ── */
+    #empty {
+      text-align: center;
+      color: #555;
+      margin-top: 60px;
+      display: none;
+    }
+    #empty p { font-size: 1rem; margin-bottom: 6px; }
+    #empty code {
+      background: #222;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #2d2d44;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-size: 0.88rem;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      max-width: 260px;
+      border-left: 4px solid #6d28d9;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.error { border-left-color: #f87171; }
+  </style>
+</head>
+<body>
+
+<h1>🎵 Discord Soundboard</h1>
+
+<div class="config">
+  <label>Bot URL:</label>
+  <input type="text" id="bot-url" value="https://lidl-tutl-radio.onrender.com" />
+  <button onclick="loadSounds()">🔄 Load Sounds</button>
+</div>
+
+<div id="status-bar">Enter bot URL and click Load Sounds</div>
+
+<div id="grid"></div>
+<div id="empty">
+  <p>No sounds found.</p>
+  <p>Drop <code>.mp3</code> / <code>.wav</code> / <code>.ogg</code> files into the <code>sounds/</code> folder next to your bot, then click Load Sounds.</p>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  let currentGuildId = null;
+  let activeButton = null;
+
+  function getBotUrl() {
+    return document.getElementById('bot-url').value.replace(/\/$/, '');
+  }
+
+  function setStatus(msg, type = '') {
+    const el = document.getElementById('status-bar');
+    el.textContent = msg;
+    el.className = type;
+  }
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = isError ? 'show error' : 'show';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.className = ''; }, 2800);
+  }
+
+  // Pick a fun emoji based on the sound name
+  function emojiFor(name) {
+    const map = [
+      [/drum|beat|kick/i, '🥁'],
+      [/horn|honk/i, '📯'],
+      [/bell/i, '🔔'],
+      [/clap|applause/i, '👏'],
+      [/fart|toot/i, '💨'],
+      [/gun|shot|bang/i, '💥'],
+      [/laugh|haha|lol/i, '😂'],
+      [/nope|no/i, '🚫'],
+      [/yes|yeah|win/i, '✅'],
+      [/sad|rip|oof/i, '😢'],
+      [/airhorn/i, '📢'],
+      [/bruh/i, '😐'],
+      [/vine/i, '🌿'],
+      [/wow|amazing/i, '🤩'],
+      [/alarm|alert/i, '🚨'],
+    ];
+    for (const [re, emoji] of map) if (re.test(name)) return emoji;
+    return '🔊';
+  }
+
+  async function loadSounds() {
+    const url = getBotUrl();
+    setStatus('Connecting...', 'info');
+
+    try {
+      // Get status (guild info)
+      const statusRes = await fetch(`${url}/status`);
+      if (!statusRes.ok) throw new Error('Could not reach bot');
+      const statusData = await statusRes.json();
+
+      if (statusData.guilds.length === 0) {
+        setStatus('⚠️ Bot is not in any voice channel. Use !join in Discord first.', 'err');
+      } else {
+        currentGuildId = statusData.guilds[0].guildId;
+        const g = statusData.guilds[0];
+        setStatus(
+          `✅ Connected — Bot in "${g.channel}" · Radio: ${g.radioPlaying ? 'ON' : 'off'}`,
+          'ok'
+        );
+      }
+
+      // Load sounds
+      const soundsRes = await fetch(`${url}/sounds`);
+      const sounds = await soundsRes.json();
+      renderGrid(sounds);
+
+    } catch (err) {
+      setStatus(`❌ Cannot reach bot at ${url}`, 'err');
+      showToast('Make sure the bot is running', true);
+    }
+  }
+
+  function renderGrid(sounds) {
+    const grid = document.getElementById('grid');
+    const empty = document.getElementById('empty');
+    grid.innerHTML = '';
+
+    if (sounds.length === 0) {
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    for (const sound of sounds) {
+      const btn = document.createElement('button');
+      btn.className = 'sound-btn';
+      btn.innerHTML = `<span class="icon">${emojiFor(sound.name)}</span>${sound.name}`;
+      btn.title = sound.file;
+      btn.onclick = () => playSound(sound.name, btn);
+      grid.appendChild(btn);
+    }
+  }
+
+  async function playSound(soundName, btn) {
+    const url = getBotUrl();
+
+    // Visual feedback
+    if (activeButton) activeButton.classList.remove('playing');
+    activeButton = btn;
+    btn.classList.add('playing');
+    setTimeout(() => btn.classList.remove('playing'), 3000); // fallback
+
+    try {
+      const res = await fetch(`${url}/play`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sound: soundName, guildId: currentGuildId })
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        showToast(`▶ Playing: ${data.playing}`);
+      } else {
+        btn.classList.remove('playing');
+        showToast(`❌ ${data.error}`, true);
+      }
+    } catch (err) {
+      btn.classList.remove('playing');
+      showToast('❌ Could not reach bot', true);
+    }
+  }
+
+  // Auto-load on startup
+  loadSounds();
+
+  // Auto-refresh status every 15s
+  setInterval(async () => {
+    try {
+      const res = await fetch(`${getBotUrl()}/status`);
+      const data = await res.json();
+      if (data.guilds.length > 0) {
+        const g = data.guilds[0];
+        currentGuildId = g.guildId;
+        setStatus(
+          `✅ Connected — Bot in "${g.channel}" · Radio: ${g.radioPlaying ? 'ON' : 'off'}`,
+          'ok'
+        );
+      }
+    } catch {}
+  }, 15000);
+</script>
+</body>
+</html>
